@@ -1,0 +1,16 @@
+{
+  "name": "crewng",
+  "version": "1.0.0",
+  "description": "CrewNG - Nigeria's #1 Event Staffing Platform",
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "setup": "cd backend && npm run db:migrate && npm run db:generate && node prisma/seed.js",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

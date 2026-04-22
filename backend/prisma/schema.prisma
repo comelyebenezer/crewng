@@ -1,0 +1,426 @@
+// CrewNG Database Schema
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  WAITER
+  WAITRESS
+  HOST
+  HOSTESS
+  BOUNCER
+  COORDINATOR
+  EVENT_PLANNER
+  BIKINI_GIRL
+  DANCER
+  PARTY_STARTER
+}
+
+enum AdminLevel {
+  SUPER_ADMIN
+  SUB_ADMIN
+  VERIFICATION_ADMIN
+  SUPPORT_ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum TransactionType {
+  PAYMENT
+  TIP
+  WITHDRAWAL
+  REFUND
+}
+
+enum VerificationStatus {
+  PENDING
+  FACE_SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ─── USER ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id               String             @id @default(cuid())
+  email            String             @unique
+  passwordHash     String
+  primaryRole      Role
+  roles            Role[]             // All roles this person has
+  isSuper          Boolean            @default(false)
+  isAdmin          Boolean            @default(false)
+  isSuperAdmin     Boolean            @default(false)
+  adminLevel       AdminLevel?
+  isActive         Boolean            @default(true)
+  isBanned         Boolean            @default(false)
+  banReason        String?
+  resetToken       String?
+  resetExpiry      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  profile          Profile?
+  wallet           Wallet?
+  bankAccount      BankAccount?
+  bookingsAsWorker Booking[]          @relation("WorkerBookings")
+  bookingsAsBooker Booking[]          @relation("BookerBookings")
+  eventsCreated    Event[]
+  eventParticipant EventParticipant[]
+  ratingsGiven     Rating[]           @relation("RatingsGiven")
+  ratingsReceived  Rating[]           @relation("RatingsReceived")
+  messages         Message[]
+  conversations    ConversationMember[]
+  notifications    Notification[]
+  bookedDates      BookedDate[]
+  cancellations    Cancellation[]
+  adminLogs        AdminLog[]
+
+  @@index([primaryRole])
+  @@index([isActive])
+}
+
+// ─── PROFILE ──────────────────────────────────────────────────────────────────
+
+model Profile {
+  id               String             @id @default(cuid())
+  userId           String             @unique
+  user             User               @relation(fields:[userId], references:[id], onDelete:Cascade)
+
+  fullName         String
+  location         String
+  state            String
+  bio              String?
+  height           String?
+  skinTone         String?
+  experience       Int                @default(0)
+
+  // NIN stored as bcrypt hash — NEVER in plaintext
+  ninHash          String
+  ninVerified      VerificationStatus @default(PENDING)
+  ninVerifiedAt    DateTime?
+  faceVideoUrl     String?            // Cloudinary URL for admin review only
+  faceMatchScore   Float?
+  verifiedByAdmin  String?
+
+  whatsappNumber   String
+  hotlineNumber    String?
+
+  // Social handles (compulsory for coordinators & planners)
+  instagramHandle  String?
+  xHandle          String?
+  tiktokHandle     String?
+
+  photos           ProfilePhoto[]
+  videoUrl         String?
+  videoPublicId    String?
+  featuredPhoto    String?
+  skills           String[]
+  isPublic         Boolean            @default(false)
+
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([state])
+  @@index([ninVerified])
+  @@index([isPublic])
+}
+
+model ProfilePhoto {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields:[profileId], references:[id], onDelete:Cascade)
+  url       String
+  publicId  String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// ─── BANK ACCOUNT ─────────────────────────────────────────────────────────────
+
+model BankAccount {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields:[userId], references:[id], onDelete:Cascade)
+  bankNameEncrypted     String
+  accountNumEncrypted   String
+  accountNameEncrypted  String
+  paystackRecipientCode String?
+  isVerified            Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ─── WALLET ───────────────────────────────────────────────────────────────────
+
+model Wallet {
+  id             String        @id @default(cuid())
+  userId         String        @unique
+  user           User          @relation(fields:[userId], references:[id], onDelete:Cascade)
+  balance        Float         @default(0)
+  heldBalance    Float         @default(0)
+  totalEarned    Float         @default(0)
+  totalWithdrawn Float         @default(0)
+  transactions   Transaction[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  walletId    String
+  wallet      Wallet          @relation(fields:[walletId], references:[id])
+  type        TransactionType
+  amount      Float
+  status      PaymentStatus   @default(PENDING)
+  reference   String          @unique
+  description String?
+  bookingId   String?
+  booking     Booking?        @relation(fields:[bookingId], references:[id])
+  createdAt   DateTime        @default(now())
+
+  @@index([walletId])
+}
+
+// ─── EVENT ────────────────────────────────────────────────────────────────────
+
+model Event {
+  id                String             @id @default(cuid())
+  creatorId         String
+  creator           User               @relation(fields:[creatorId], references:[id])
+  title             String
+  description       String?
+  eventType         String?
+  status            EventStatus        @default(DRAFT)
+  location          String
+  latitude          Float?
+  longitude         Float?
+  outfitDescription String?
+  outfitPhotoUrl    String?
+  participants      EventParticipant[]
+  bookings          Booking[]
+  groupChat         Conversation?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([creatorId])
+  @@index([status])
+}
+
+model EventParticipant {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields:[eventId], references:[id], onDelete:Cascade)
+  userId    String
+  user      User     @relation(fields:[userId], references:[id])
+  role      Role
+  payAmount Float
+  isPaid    Boolean  @default(false)
+  isRated   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+// ─── BOOKING ──────────────────────────────────────────────────────────────────
+
+model Booking {
+  id              String        @id @default(cuid())
+  workerId        String
+  worker          User          @relation("WorkerBookings", fields:[workerId], references:[id])
+  bookerId        String
+  booker          User          @relation("BookerBookings", fields:[bookerId], references:[id])
+  eventId         String?
+  event           Event?        @relation(fields:[eventId], references:[id])
+
+  // Booking details
+  eventName       String
+  eventType       String?
+  location        String
+  startTime       String
+  endTime         String
+  outfit          String?
+  notes           String?
+  bookerName      String
+  bookerPhone     String
+  bookerEmail     String
+
+  status          BookingStatus @default(PENDING)
+  payMethod       String        @default("card")
+  payAmount       Float
+  tipAmount       Float         @default(0)
+  totalPaid       Float         @default(0)
+  paystackRef     String?
+
+  // Rating gates — both must rate before payment releases
+  workerRated     Boolean       @default(false)
+  bookerRated     Boolean       @default(false)
+  paymentReleased Boolean       @default(false)
+
+  transactions    Transaction[]
+  ratings         Rating[]
+  bookedDates     BookedDate[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([workerId])
+  @@index([bookerId])
+  @@index([status])
+}
+
+// ─── BOOKED DATES (calendar blocking) ────────────────────────────────────────
+
+model BookedDate {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields:[userId], references:[id], onDelete:Cascade)
+  bookingId String
+  booking   Booking  @relation(fields:[bookingId], references:[id], onDelete:Cascade)
+  date      DateTime
+  startTime String
+  endTime   String
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([date])
+}
+
+model Cancellation {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields:[userId], references:[id], onDelete:Cascade)
+  bookingId   String
+  reason      String?
+  cancelledAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([cancelledAt])
+}
+
+// ─── RATINGS ──────────────────────────────────────────────────────────────────
+
+model Rating {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields:[bookingId], references:[id])
+  giverId    String
+  giver      User     @relation("RatingsGiven", fields:[giverId], references:[id])
+  receiverId String
+  receiver   User     @relation("RatingsReceived", fields:[receiverId], references:[id])
+  score      Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([bookingId, giverId])
+  @@index([receiverId])
+}
+
+// ─── MESSAGING ────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id        String               @id @default(cuid())
+  eventId   String?              @unique
+  event     Event?               @relation(fields:[eventId], references:[id])
+  isGroup   Boolean              @default(false)
+  name      String?
+  members   ConversationMember[]
+  messages  Message[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields:[conversationId], references:[id], onDelete:Cascade)
+  userId         String
+  user           User         @relation(fields:[userId], references:[id])
+  joinedAt       DateTime     @default(now())
+  lastRead       DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields:[conversationId], references:[id], onDelete:Cascade)
+  senderId       String
+  sender         User         @relation(fields:[senderId], references:[id])
+  type           String       @default("TEXT")
+  content        String?
+  mediaUrl       String?
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields:[userId], references:[id], onDelete:Cascade)
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ─── ADMIN AUDIT LOG ──────────────────────────────────────────────────────────
+
+model AdminLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  admin     User     @relation(fields:[adminId], references:[id])
+  action    String
+  targetId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+}
